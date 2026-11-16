@@ -1,342 +1,143 @@
-# __Instance Segmentation Getting Started__
+# STM32N6 Edge Computer Vision
 
----
+This repository runs **YOLOv8n instance segmentation on the NUCLEO-N657X0-Q**. It is based on ST's [Instance Segmentation Getting Started example](https://github.com/STMicroelectronics/STM32N6-GettingStarted-InstanceSegmentation). The included model accepts a 256 × 256 RGB image and produces bounding boxes, class scores, and instance masks for 80 COCO classes.
 
-This project provides a real-time embedded environment for STM32N6 microcontroller to execute [STEdgeAI](https://www.st.com/en/development-tools/stedgeai-core.html) generated models, specifically targeting the instance segmentation application. The code prioritizes clarity and understandability over performance, making it an ideal starting point for further development.
+| Goal | Start here |
+| --- | --- |
+| Run the existing model on the board | [Run the bundled demo](#1-run-the-bundled-demo) |
+| Train on your own images | [Notebook 01 — Train and quantize](Notebooks/01_Train_and_Quantize_STM32N6.ipynb) |
+| Compile a custom model with ST Edge AI Core | [Notebook 02 — Compile and deploy](Notebooks/02_Compile_and_Deploy_NUCLEO_N6.ipynb) or [manual commands](#3-generate-the-model-files) |
+| Build or update the firmware | [Build the application](#5-build-the-application) and [program external flash](#6-program-external-flash) |
 
-![Image sample](_htmresc/sample.PNG)
-Detected classes are displayed on the bounding boxes. The instance segmentation is displayed in overlay.
+## How the firmware works
 
-This is a standalone project that can be deployed directly to hardware. It is also integrated into the [ST ModelZoo repository](https://github.com/STMicroelectronics/stm32ai-modelzoo-services), and is required to deploy the instance segmentation use case. The ModelZoo enables you to train, evaluate, and automatically deploy any supported model. If you wish to use this project as part of the ModelZoo, please refer to the [Quickstart using stm32ai-modelzoo-services](#quickstart-using-stm32ai-modelzoo-services) section for instructions.
+The camera peripheral (DCMIPP) produces two image streams. Pipe 1 supplies continuous video for the USB display. Pipe 2 takes a snapshot, resizes it to the model input dimensions, and supplies RGB pixels for inference. The application runs the model with the Neural-ART runtime. The postprocessor decodes the two output tensors, filters duplicate boxes, reconstructs masks, and passes the results to the display.
 
-This README provides an overview of the application. Additional documentation is available in the [Doc](./Doc/) folder.
+| Path | Role |
+| --- | --- |
+| [`Application/NUCLEO-N657X0-Q/Src/main.c`](Application/NUCLEO-N657X0-Q/Src/main.c) | Camera capture, inference, postprocessing, and display loop |
+| [`app_camerapipeline.c`](Application/NUCLEO-N657X0-Q/Src/app_camerapipeline.c) | Camera pipes, image dimensions, and aspect ratio handling |
+| [`app_config.h`](Application/NUCLEO-N657X0-Q/Inc/app_config.h) | RGB order, class labels, confidence and IoU thresholds, output quantization |
+| [`Model/NUCLEO-N657X0-Q/`](Model/NUCLEO-N657X0-Q) | Generated C/H files for the application and the model data for external flash |
+| [`Model/st_ai_output/`](Model/st_ai_output) | ST Edge AI Core output and generation report. The build uses the copy in the board folder. |
+| [`Middlewares/`](Middlewares) | Neural-ART runtime, camera and display libraries, and vision postprocessing |
+| [`FSBL/`](FSBL) and [`Binary/`](Binary) | First-stage bootloader and prebuilt demo image |
 
----
+## 1. Run the bundled demo
 
-## Table of Contents
+1. Connect the camera to the board. Connect the on-board ST-LINK port **CN9** to the PC with USB-C.
+2. Set the board to **development mode** (BOOT0/JP1 at position 1 and BOOT1/JP2 at position 2). In STM32CubeProgrammer connect over SWD and select the **MX25UM51245G_STM32N6570-NUCLEO** external loader.
+3. Program the [combined UVCL HEX](Binary/NUCLEO-N657X0-Q/USB-UVC-Display/NUCLEO-N657X0-Q_GettingStarted_InstanceSegmentation-uvc.hex). This image contains the bootloader, application, and COCO model data.
+4. Set **both jumpers to position 1** for flash boot and power-cycle the board. Connect the USB OTG port **CN8** to the PC and open a camera viewer, such as Windows Camera. Present a COCO object to check boxes and masks.
 
-- [Features Demonstrated](#features-demonstrated)
-- [Hardware Support](#hardware-support)
-- [Tools Version](#tools-version)
-- [Boot Modes](#boot-modes)
-- [Quickstart using stm32ai-modelzoo-services](#quickstart-using-stm32ai-modelzoo-services)
-- [Quickstart using Prebuilt Binaries](#quickstart-using-prebuilt-binaries)
-  - [Programming with STM32CubeProgrammer UI](#how-to-program-hex-files-using-stm32cubeprogrammer-ui)
-  - [Programming STM32N6570-DK via Command Line](#how-to-program-hex-files-on-stm32n6570-dk-using-command-line)
-  - [Programming NUCLEO-N657X0-Q via Command Line](#how-to-program-hex-files-on-nucleo-n657x0-q-using-command-line)
-- [Quickstart using Source Code](#quickstart-using-source-code)
-  - [Download and Compile Yolo v8 seg](#download-and-compile-yolo-v8-seg)
-  - [Build and Run - Dev Mode](#application-build-and-run---dev-mode)
-    - [STM32CubeIDE](#stm32cubeide)
-    - [Makefile](#makefile)
-  - [Build and Run - Boot from Flash](#application-build-and-run---boot-from-flash)
-    - [Build the Application](#build-the-application)
-      - [STM32CubeIDE](#stm32cubeide-1)
-      - [Makefile](#makefile-1)
-    - [Programming Firmware to External Flash](#program-the-firmware-in-the-external-flash)
-- [How to update my project with a new version of ST Edge AI](#how-to-update-my-project-with-a-new-version-of-st-edge-ai)
-- [Known Issues and Limitations](#known-issues-and-limitations)
+See ST's [NUCLEO deployment guide](https://github.com/STMicroelectronics/stm32ai-modelzoo-services/blob/main/instance_segmentation/docs/README_DEPLOYMENT_STM32N6.md) for the hardware setup. The demo checks and can program the xSPI speed configuration OTP bits during initialization. The source project also contains a build configuration for the optional SPI display.
 
-**Documentation Folder:**
+## 2. Train and export a model
 
-- [Application Overview](Doc/Application-Overview.md)
-- [Boot Overview](Doc/Boot-Overview.md)
-- [Camera Build Options](Doc/Build-Options.md#cameras-module)
-- [Camera Orientation](Doc/Build-Options.md#camera-orientation)
-- [Aspect Ratio Mode](Doc/Build-Options.md#aspect-ratio-mode)
-- [Neural-ART: Description and Operation](Doc/Neural-ART-Description-and-Operation.md)
-- [Deploying your Quantized Model](Doc/Deploy-your-Quantized-Model.md)
-- [Programming Hex Files with STM32CubeProgrammer](Doc/Program-Hex-Files-STM32CubeProgrammer.md)
+Start with [Notebook 01](Notebooks/01_Train_and_Quantize_STM32N6.ipynb). It runs the existing COCO TFLite in Python, checks YOLO polygon labels, fine-tunes YOLOv8n-seg, and compares the trained PyTorch model with its full-integer TFLite export. Start with the same 256 × 256 input size and an architecture that produces the same two output tensors. Keep captures from a single event in the same dataset split.
 
----
+The notebook hands over a `*_full_integer_quant.tflite` file and a JSON record with the class order and tensor details. Use representative images from your own camera for quantization calibration. [ST's YOLOv8 segmentation export tutorial](https://github.com/STMicroelectronics/stm32ai-modelzoo-services/blob/main/instance_segmentation/docs/tuto/How_to_deploy_yolov8_instance_segmentation.md) describes the per-channel export workflow.
 
-## Features Demonstrated
+## 3. Generate the model files
 
-- Sequential application flow
-- NPU-accelerated quantized AI model inference
-- Dual DCMIPP pipelines
-- DCMIPP cropping, decimation, and downscaling
-- DCMIPP ISP usage
-- LTDC dual-layer implementation
-- Development mode
-- Boot from external flash
-
----
-
-## Hardware Support
-
-Supported development platforms:
-
-- [STM32N6570-DK](https://www.st.com/en/evaluation-tools/stm32n6570-dk.html) Discovery Board
-  - Connect to the onboard ST-LINK debug adapter (CN6) using a __USB-C to USB-C cable__ for sufficient power.
-  - OTP fuses are configured for xSPI IOs to achieve maximum speed (200MHz) on xSPI interfaces.
-- [NUCLEO-N657X0-Q](https://www.st.com/en/evaluation-tools/nucleo-n657x0-q.html) Nucleo Board
-  - Connect to the onboard ST-LINK debug adapter (CN9) using a __USB-C to USB-C cable__ for sufficient power.
-  - OTP fuses are configured for xSPI IOs to achieve maximum speed (200MHz) on xSPI interfaces.
-
-![Board](_htmresc/STM32N6570-DK.png)
-STM32N6570-DK board with MB1854B IMX335.
-
-Supported camera modules:
-
-- Provided IMX335 camera module
-- [STEVAL-55G1MBI](https://www.st.com/en/evaluation-tools/steval-55g1mbi.html)
-- [STEVAL-66GYMAI](https://www.st.com/en/evaluation-tools/steval-66gymai.html)
-- [STEVAL-1943-MC1](https://www.st.com/en/evaluation-tools/steval-1943-mc1.html)
-
-For the Nucleo board, one of the following displays is required:
-
-- A USB host for data transmission via USB/UVC (using the USB OTG port CN8)
-
-![Board](_htmresc/NUCLEO-N657X0-Q_USB_UVC.png)
-NUCLEO-N657X0-Q board with USB/UVC display.
-
-- [X-NUCLEO-GFX01M2](https://www.st.com/en/evaluation-tools/x-nucleo-gfx01m2.html) SPI display
-
-![Board](_htmresc/NUCLEO-N657X0-Q_SPI.png)
-NUCLEO-N657X0-Q board with SPI display.
-
----
-
-## Tools Version
-
-- [STM32CubeIDE](https://www.st.com/content/st_com/en/products/development-tools/software-development-tools/stm32-software-development-tools/stm32-ides/stm32cubeide.html) (__v1.17.0__)
-- [STM32CubeProgrammer](https://www.st.com/en/development-tools/stm32cubeprog.html) (__v2.18.0__)
-- [STEdgeAI](https://www.st.com/en/development-tools/stedgeai-core.html) (__v3.0.0__)
-
----
-
-## Boot Modes
-
-The STM32N6 series does not have internal flash memory. To retain firmware after a reboot, program it into the external flash. Alternatively, you can load firmware directly into SRAM (development mode), but note that the program will be lost if the board is powered off in this mode.
-
-Development Mode: used for loading firmware into RAM during a debug session or for programming firmware into external flash.
-
-Boot from Flash: used to boot firmware from external flash.
-
-|                  | STM32N6570-DK                                                                | NUCLEO-N657X0-Q                                                                  |
-| -------------    | -------------                                                                |-----------------                                                                 |
-| Boot from flash  | ![STM32N6570-DK Boot from flash](_htmresc/STM32N6570-DK_Boot_from_flash.png) | ![NUCLEO-N657X0-Q Boot from flash](_htmresc/NUCLEO-N657X0-Q_Boot_from_flash.png) |
-| Development mode | ![STM32N6570-DK Development mode](_htmresc/STM32N6570-DK_Dev_mode.png)       | ![NUCLEO-N657X0-Q Development mode](_htmresc/NUCLEO-N657X0-Q_Dev_mode.png)       |
-
----
-
-## Quickstart using stm32ai-modelzoo-services
-
-This application is a C-based project required by the deployment service in the [ModelZoo](https://github.com/STMicroelectronics/stm32ai-modelzoo-services/tree/main). The ModelZoo enables you to train, evaluate, and automatically deploy any supported model.
-
-To deploy your model using the ModelZoo, refer to the [Deployment README for STM32N6](https://github.com/STMicroelectronics/stm32ai-modelzoo-services/blob/main/instance_segmentation/deployment/README_STM32N6.md) for detailed instructions on deploying to either the STM32N6570-DK or the NUCLEO-N657X0-Q.
-
-__Note__: This C-based application is already included in the ModelZoo repository under [STM32N6 instance segmentation application code folder](https://github.com/STMicroelectronics/stm32ai-modelzoo-services/tree/main/application_code/instance_segmentation/STM32N6).
-
----
-
-## Quickstart using Prebuilt Binaries
-
-The prebuilt binaries are an assembly of several binaries:
-  - FSBL (First Stage Boot Loader, loading the application from flash to RAM)
-  - The application
-  - The weights of the neural network model
-
-### STM32N6570-DK
-
-To program the board's external flash, follow these steps:
-
-1. Set the board to [development mode](#boot-modes).
-2. Program `Binary/STM32N6570-DK/STM32N6570-DK_GettingStarted_InstanceSegmentation.hex`.
-3. Set the board to [boot from flash mode](#boot-modes).
-4. Power cycle the board.
-5. Place an object from the [COCO Dataset](https://cocodataset.org/#home) in front of the camera to detect and segment it.
-
-### NUCLEO-N657X0-Q USB/UVC
-
-To program the board's external flash, follow these steps:
-
-1. Set the board to [development mode](#boot-modes).
-2. Program `Binary/NUCLEO-N657X0-Q/USB-UVC-Display/NUCLEO-N657X0-Q_GettingStarted_InstanceSegmentation-uvc.hex`.
-3. Set the board to [boot from flash mode](#boot-modes).
-4. Connect a USB cable to the USB OTG port (CN8), next to the RJ45 port. Connect the other end to a USB host (PC, USB hub, etc.) for data transmission via USB/UVC.
-5. Power cycle the board.
-6. Start the camera application on the host. On Windows, search for "camera" in the Start menu.
-7. Place an object from the [COCO Dataset](https://cocodataset.org/#home) in front of the camera to detect and segment it.
-
-### NUCLEO-N657X0-Q SPI
-
-To program the board's external flash, follow these steps:
-
-1. Set the board to [development mode](#boot-modes).
-2. Program `Binary/NUCLEO-N657X0-Q/SPI-Display/NUCLEO-N657X0-Q_GettingStarted_InstanceSegmentation-spi.hex`.
-3. Set the board to [boot from flash mode](#boot-modes).
-4. Power cycle the board.
-5. Place an object from the [COCO Dataset](https://cocodataset.org/#home) in front of the camera to detect and segment it.
-
----
-
-### How to Program Hex Files Using STM32CubeProgrammer UI
-
-See [How to program hex files STM32CubeProgrammer](Doc/Program-Hex-Files-STM32CubeProgrammer.md).
-
----
-
-### How to Program Hex Files on STM32N6570-DK Using Command Line
-
-Ensure the STM32CubeProgrammer `bin` folder is in your PATH.
-
-```bash
-export DKEL="<STM32CubeProgrammer_N6 Install Folder>/bin/ExternalLoader/MX66UW1G45G_STM32N6570-DK.stldr"
-
-STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el $DKEL -hardRst -w Binary/STM32N6570-DK/STM32N6570-DK_GettingStarted_InstanceSegmentation.hex
-```
-
----
-
-### How to Program Hex Files on NUCLEO-N657X0-Q Using Command Line
-
-Ensure the STM32CubeProgrammer `bin` folder is in your PATH.
-
-```bash
-export NUEL="<STM32CubeProgrammer_N6 Install Folder>/bin/ExternalLoader/MX25UM51245G_STM32N6570-NUCLEO.stldr"
-
-# USB/UVC
-STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el $NUEL -hardRst -w Binary/NUCLEO-N657X0-Q/USB-UVC-Display/NUCLEO-N657X0-Q_GettingStarted_InstanceSegmentation-uvc.hex
-
-# SPI
-STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el $NUEL -hardRst -w Binary/NUCLEO-N657X0-Q/SPI-Display/NUCLEO-N657X0-Q_GettingStarted_InstanceSegmentation-spi.hex
-```
-
----
-
-## Quickstart using Source Code
-
-Before building and running the application, you must program `Model/<board_name>/network_data.hex` (model weights and biases). This only needs to be done once unless you change the AI model. See [Quickstart using prebuilt binaries](#quickstart-using-prebuilt-binaries) for details.
-
-For more information about boot modes, see [Boot Overview](Doc/Boot-Overview.md).
-
-__Note__: To select the NUCLEO-N657X0-Q display interface, use the appropriate build configuration in CubeIDE, or specify `SCR_LIB_SCREEN_ITF=UVCL` or `SCR_LIB_SCREEN_ITF=SPI` as a Makefile option (default is UVCL).
-
----
-
-### Download and Compile Yolo v8 seg
-
-Go to the [ST Ultralytics fork](https://github.com/stm32-hotspot/ultralytics/tree/main/examples/YOLOv8-STEdgeAI) and download Yolo v8 seg 256x256, or [click this link to download the model directly](https://github.com/stm32-hotspot/ultralytics/raw/refs/heads/main/examples/YOLOv8-STEdgeAI/stedgeai_models/segmentation/yolov8n_256_quant_pc_ii_seg_coco-st.tflite). Place the downloaded model in the `Model/` directory, then run the following commands:
+Use **ST Edge AI Core 3.0.0** to match the generated files and runtime included here. Put `stedgeai` and `arm-none-eabi-objcopy` on PATH. The commands below use Bash (Git Bash works with Windows executables on PATH). Run them from the repository root. The original TFLite is already in `Model/`. For a custom model, set `model` to its absolute path or its path relative to `Model/`.
 
 ```bash
 cd Model
-./generate-n6-model_<board_name>.sh
+board=NUCLEO-N657X0-Q
+model=yolov8n_256_quant_pc_ii_seg_coco-st.tflite
+
+stedgeai generate --model "$model" --target stm32n6 \
+  --st-neural-art "default@user_neuralart_${board}.json" --input-data-type uint8 && \
+cp st_ai_output/network.c st_ai_output/network_ecblobs.h \
+  st_ai_output/stai_network.c st_ai_output/stai_network.h "$board/" && \
+cp st_ai_output/network_atonbuf.xSPI2.raw "$board/network_data.xSPI2.bin" && \
+arm-none-eabi-objcopy -I binary "$board/network_data.xSPI2.bin" \
+  --change-addresses 0x70380000 -O ihex "$board/network_data.hex"
 cd ..
 ```
 
-This script runs `stegdeai` to generate the C files associated with the model.
+| Command | Why it is needed |
+| --- | --- |
+| `stedgeai generate` | Compiles the TFLite graph. The JSON profile sets compiler options and references the board's memory pool. `--input-data-type uint8` asks ST for an unsigned input interface to match the camera. |
+| Copy the four C/H files | The application builds against the files in `Model/NUCLEO-N657X0-Q/`. |
+| Copy `network_atonbuf.xSPI2.raw` | Keeps the generated data as `network_data.xSPI2.bin`. It contains the model's weights and constants. |
+| `objcopy` | Wraps the raw data in Intel HEX records with base address `0x70380000`, matching the generated network's flash references. |
 
----
+The repository's [generation script](Model/generate-n6-model_NUCLEO-N657X0-Q.sh) performs the same steps with the COCO filename fixed. [Notebook 02](Notebooks/02_Compile_and_Deploy_NUCLEO_N6.ipynb) generates a custom model in a separate directory so you can inspect it before copying it into the project. If upgrading ST Edge AI Core, update the application headers and runtime under `Middlewares/stedgeai-lib/` to match the generator.
 
-### Application Build and Run - Dev Mode
+## 4. Check the generated model and configure the application
 
-Set your board to [development mode](#boot-modes).
+Use `stai_network.h` from the **new generation** and review `network_generate_report.txt` before building.
 
-#### STM32CubeIDE
+- **Input.** The existing firmware feeds RGB888 bytes directly to the model. The COCO TFLite declares `int8` with scale ≈ 1/255 and zero point −128. ST's generated interface declares `uint8` with the same scale and zero point 0, so the raw camera bytes represent the expected normalized RGB values. Check the new model's input shape, type, scale, and zero point.
+- **Outputs.** The YOLOv8 segmentation wrapper expects two signed 8-bit buffers in order. The first contains 1,344 candidates with `4 + number_of_classes + 32` values per candidate stored attribute-first. The second contains 32 mask prototypes in a 64 × 64 grid with channels last. Verify tensor order, layout, and the meaning of the values before reusing the wrapper.
+- **Application settings.** Update `NB_CLASSES`, `CLASSES_TABLE`, and both output scale/zero-point pairs in [`app_config.h`](Application/NUCLEO-N657X0-Q/Inc/app_config.h). The postprocessor reads these values from the header. Change the candidate and mask dimensions or the decoder itself if the model contract changes.
+- **Memory.** Inspect the actual allocations and software fallbacks in the generation report. The bundled COCO report already uses 445 of 448 KiB in one NPU SRAM bank. Moving to a higher input resolution can change the RAM requirement even when the weights still fit in flash.
 
-Double-click `Application/<board_name>/STM32CubeIDE/.project` to open the project in STM32CubeIDE. Build and run the project.
+## 5. Build the application
 
-#### Makefile
+### STM32CubeIDE on Windows
 
-Navigate to `Application/<board_name>/` and run the following commands (ensure required tools are in your PATH):
+1. Import [`Application/NUCLEO-N657X0-Q/STM32CubeIDE`](Application/NUCLEO-N657X0-Q/STM32CubeIDE) as an existing project and select the **UVCL** build configuration.
+2. Open **Project Properties → C/C++ Build → Settings → Build Steps → Post-build steps**. The checked-in UVCL configuration contains this command. Replace the executable path with the one on your PC and ensure the build generates the input `.bin`.
 
-1. Build the project:
-    ```bash
-    make -j8
-    ```
-2. Start a GDB server connected to the STM32 target:
-    ```bash
-    ST-LINK_gdbserver -p 61234 -l 1 -d -s -cp <path-to-stm32cubeprogramer-bin-dir> -m 1 -g
-    ```
-3. In a separate terminal, launch a GDB session to load the firmware:
-    ```bash
-    $ arm-none-eabi-gdb build/Application/<board_name>/Project.elf
-    (gdb) target remote :61234
-    (gdb) monitor reset
-    (gdb) load
-    (gdb) continue
-    ```
+   ```text
+   "D:\STM32_PROG\bin\STM32_SigningTool_CLI.exe" -s -bin "${BuildArtifactFileBaseName}.bin" -o "${BuildArtifactFileBaseName}-trusted.bin" -t fsbl -la 0x70100000 -nk -hv 2.3 -align
+   ```
 
----
+3. Run **Clean** and **Build**. Use the resulting `*-trusted.bin` for the application region at **`0x70100000`**. The `.elf` is for debugging. In development mode, you can also load the ELF in SRAM with the model data already programmed in external flash.
 
-### Application Build and Run - Boot from Flash
+The post-build step adds the STM32 v2.3 boot header. `-nk` selects the no-key flow and `-align` aligns the payload. The command above is the existing CubeIDE recipe, with `-t fsbl` and `-la` in the header. Its output is used as the **application image**. The actual first-stage bootloader is `FSBL/ai_fsbl.hex`. The `.bin` download still needs an explicit flash destination. The header's load-address field and the programmer's write address are separate settings. [ST Signing Tool manual](https://www.st.com/resource/en/user_manual/um2543-stm32-signing-tool-software-description-stmicroelectronics.pdf)
 
-Set your board to [development mode](#boot-modes).
+### Makefile
 
-#### Build the Application
-
-##### STM32CubeIDE
-
-Double-click `Application/<board_name>/STM32CubeIDE/.project` to open the project in STM32CubeIDE. Build and run the project.
-
-##### Makefile
-
-Ensure all required tools are in your PATH, then build the project:
+From the repository root, in a shell with GNU Make, Arm GCC, and STM32 Signing Tool available:
 
 ```bash
-make -j8
+cd Application/NUCLEO-N657X0-Q
+make clean
+make -j8 SCR_LIB_SCREEN_ITF=UVCL
+make sign SCR_LIB_SCREEN_ITF=UVCL SIGNER='STM32_SigningTool_CLI -align'
+cd ../..
 ```
 
-#### Program the Firmware in the External Flash
+The Makefile uses the ST example's **SSBL** header recipe for the application. The override enables alignment for current Signing Tool versions that support `-align`. If you are reproducing the older toolchain and its Signing Tool does not expose this option, use the Makefile default. It produces `Application/NUCLEO-N657X0-Q/build/Application/NUCLEO-N657X0-Q/Project_sign.hex`, with the application flash address already encoded. Use one build route's application image per deployment.
 
-After building the application, you must sign the binary file:
+## 6. Program external flash
 
-```bash
-STM32_SigningTool_CLI -bin build/Application/<board_name>/Project.bin -nk -t ssbl -hv 2.3 -o build/Application/<board_name>/Project_sign.bin
+The STM32N6 boots from external NOR. For this project's 64 MiB NUCLEO flash, the layout is:
+
+| Region | Inclusive range | File to program |
+| --- | --- | --- |
+| First-stage bootloader | `0x70000000–0x700FFFFF` | `FSBL/ai_fsbl.hex` |
+| Application | `0x70100000–0x7037FFFF` | CubeIDE `*-trusted.bin` at `0x70100000` or Makefile `Project_sign.hex` |
+| Network weights and constants | `0x70380000–0x73FFFFFF` | `Model/NUCLEO-N657X0-Q/network_data.hex` |
+
+At reset the bootloader starts the application. The application maps the external flash, and the generated network references its constants at the model region address. Keep the application image below `0x70380000` and the model data within the physical flash range. The weights region has 60.5 MiB of physical capacity. The compiler report derives its limit from the memory pool, so use the physical limit when checking a larger model. `.hex` files carry their write addresses. Raw `.bin` files require the address in CubeProgrammer.
+
+1. With the board in **development mode**, connect via **SWD** and select `MX25UM51245G_STM32N6570-NUCLEO.stldr`.
+2. For a fresh installation, program the FSBL, application image, and model HEX. If you changed the model, program the new application and the matching model HEX together. If you only changed firmware code and are keeping the same generated network and data, update the application region.
+3. Erase only the sectors needed by the files you are updating, and verify programming. Leave **Skip flash erase before programming** unchecked for ordinary updates. It bypasses erasure and is appropriate when the target sectors are already erased. A full-chip erase clears all three regions, so all three images must be programmed again.
+4. Set both jumpers to position 1 and reboot into flash mode. Check the model name on the UART console and verify boxes and masks in the USB video.
+
+[STM32CubeProgrammer manual](https://www.st.com/resource/en/user_manual/dm00403500.pdf)
+
+### CLI example for Windows PowerShell
+
+Run from the repository root. Adjust the loader path. This example uses the CubeIDE application binary.
+
+```powershell
+$loader = 'D:\STM32_PROG\bin\ExternalLoader\MX25UM51245G_STM32N6570-NUCLEO.stldr'
+$app = 'Application\NUCLEO-N657X0-Q\STM32CubeIDE\UVCL\NUCLEO-N657X0-Q_GettingStarted_InstanceSegmentation-trusted.bin'
+
+STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el "$loader" -hardRst -w 'FSBL/ai_fsbl.hex' -v
+STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el "$loader" -hardRst -w "$app" 0x70100000 -v
+STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el "$loader" -hardRst -w 'Model/NUCLEO-N657X0-Q/network_data.hex' -v
 ```
 
-Program the signed binary at address `0x70100000`, as well as the FSBL and network parameters.
+If you built with Make, substitute `Project_sign.hex` for the application binary and omit the explicit address for that command.
 
-On STM32N6570-DK:
+### Validate a custom model
 
-```bash
-export DKEL="<STM32CubeProgrammer_N6 Install Folder>/bin/ExternalLoader/MX66UW1G45G_STM32N6570-DK.stldr"
-
-# First Stage Boot Loader
-STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el $DKEL -hardRst -w FSBL/ai_fsbl.hex
-
-# Adjust build path as needed
-STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el $DKEL -hardRst -w build/Application/STM32N6570-DK/Project_sign.bin 0x70100000
-
-# Network parameters
-STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el $DKEL -hardRst -w Model/STM32N6570-DK/network_data.hex
-```
-
-On NUCLEO-N657X0-Q:
-
-```bash
-export NUEL="<STM32CubeProgrammer_N6 Install Folder>/bin/ExternalLoader/MX25UM51245G_STM32N6570-NUCLEO.stldr"
-
-# First Stage Boot Loader
-STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el $NUEL -hardRst -w FSBL/ai_fsbl.hex
-
-# Adjust build path as needed
-STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el $NUEL -hardRst -w build/Application/NUCLEO-N657X0-Q/Project_sign.bin 0x70100000
-
-# Network parameters
-STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el $NUEL -hardRst -w Model/NUCLEO-N657X0-Q/network_data.hex
-```
-
-__Note__: Only the application binary needs to be programmed if `fsbl` and `network_data.hex` have already been programmed.
-
-Set your board to [boot from flash](#boot-modes) mode and power cycle to boot from external flash.
-
----
-
-## How to update my project with a new version of ST Edge AI
-
-The neural network model files (`network.c/h`, `stai_network.c/h`, etc.) included in this project were generated using [STEdgeAI](https://www.st.com/en/development-tools/stedgeai-core.html) version 3.0.0.
-
-Using a different version of STEdgeAI to generate these model files may result in the following compile-time error:  
-`Possible mismatch in ll_aton library used`.
-
-If you encounter this error, please follow the STEdgeAI instructions on [How to update my project with a new version of ST Edge AI Core](https://stedgeai-dc.st.com/assets/embedded-docs/stneuralart_faqs_update_version.html) to update your project.
-
----
-
-## Known Issues and Limitations
-
-- Only RGB888 format for neural network input has been tested.
-- Only UINT8 format for neural network input is supported.
+Test with both target objects and empty scenes under the same illumination used in your application. If the PC and board disagree, start with the same RGB input bytes and compare the raw output tensors before decoding. The demo's inference timer measures the network call. Measure capture and postprocessing separately to estimate end-to-end latency.
