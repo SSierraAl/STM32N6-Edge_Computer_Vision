@@ -1,0 +1,27 @@
+stedgeai generate --model yolov8n_256_quant_pc_ii_seg_coco-st.tflite --target stm32n6 --st-neural-art default@user_neuralart_NUCLEO-N657X0-Q.json --input-data-type uint8
+
+cp st_ai_output/network.c NUCLEO-N657X0-Q/
+cp st_ai_output/network_ecblobs.h NUCLEO-N657X0-Q/
+cp st_ai_output/stai_network.c NUCLEO-N657X0-Q/
+cp st_ai_output/stai_network.h NUCLEO-N657X0-Q/
+cp st_ai_output/network_atonbuf.xSPI2.raw NUCLEO-N657X0-Q/network_data.xSPI2.bin
+
+arm-none-eabi-objcopy -I binary NUCLEO-N657X0-Q/network_data.xSPI2.bin --change-addresses 0x70380000 -O ihex NUCLEO-N657X0-Q/network_data.hex
+
+
+
+Understanding the "Memory Map"
+Think of your external flash like a bookshelf. You have three books on it:
+
+Book 1 (FSBL): 0x70000000 to 0x700FFFFF
+
+Book 2 (Your App): 0x70100000 to 0x7037FFFF
+
+Book 3 (AI Model): 0x70380000 to the end
+
+If you "Full Chip Erase," you clear the whole shelf. If you use "Skip Flash Erase" (or Sector Erase), you just take out Book 2 and put the new version in.
+
+
+project settings c/c++ build / settgins  / build setps / post build steps / command
+
+"D:\STM32_PROG\bin\STM32_SigningTool_CLI.exe" -s -bin "${BuildArtifactFileBaseName}.bin" -o "${BuildArtifactFileBaseName}-trusted.bin" -t fsbl -la 0x70100000 -nk -hv 2.3 -align

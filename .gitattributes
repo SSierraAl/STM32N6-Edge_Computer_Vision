@@ -1,0 +1,26 @@
+# Normalize text files to LF
+* text=auto
+
+# STM32 source code
+*.c text eol=lf
+*.h text eol=lf
+*.cpp text eol=lf
+*.s text eol=lf
+
+# Build configuration
+Makefile text eol=lf
+*.mk text eol=lf
+*.sh text eol=lf
+*.ld text eol=lf
+
+# STM32CubeIDE configuration
+*.project text eol=lf
+*.cproject text eol=lf
+
+# Binary files
+*.bin binary
+*.elf binary
+*.hex binary
+*.png binary
+*.jpg binary
+*.pdf binary
