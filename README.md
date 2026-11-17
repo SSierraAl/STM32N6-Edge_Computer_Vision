@@ -4,12 +4,15 @@ This repository runs **YOLOv8n instance segmentation on the NUCLEO-N657X0-Q**. I
 
 | Goal | Start here |
 | --- | --- |
+| Learn the architecture from the camera to the NPU | [Architecture walkthrough](Doc/Application-Overview.md) |
 | Run the existing model on the board | [Run the bundled demo](#1-run-the-bundled-demo) |
 | Train on your own images | [Notebook 01 — Train and quantize](Notebooks/01_Train_and_Quantize_STM32N6.ipynb) |
 | Compile a custom model with ST Edge AI Core | [Notebook 02 — Compile and deploy](Notebooks/02_Compile_and_Deploy_NUCLEO_N6.ipynb) or [manual commands](#3-generate-the-model-files) |
 | Build or update the firmware | [Build the application](#5-build-the-application) and [program external flash](#6-program-external-flash) |
 
 ## How the firmware works
+
+The [architecture walkthrough](Doc/Application-Overview.md) traces a frame through the source code, works through a quantized detection and a mask, and shows how the firmware linker and the Neural-ART memory pool fit together.
 
 The camera peripheral (DCMIPP) produces two image streams. Pipe 1 supplies continuous video for the USB display. Pipe 2 takes a snapshot, resizes it to the model input dimensions, and supplies RGB pixels for inference. The application runs the model with the Neural-ART runtime. The postprocessor decodes the two output tensors, filters duplicate boxes, reconstructs masks, and passes the results to the display.
 
