@@ -1,6 +1,6 @@
 # STM32N6 computer vision architecture
 
-Follow one frame from the camera to the USB viewer, then follow one model from training to flash. The examples use the NUCLEO-N657X0-Q and the 256 × 256 YOLOv8n-seg network in this repository. [The README](../README.md) has the commands to build and run the demo.
+Follow one frame from the camera to the USB viewer, then follow one model from training to flash. The examples use the NUCLEO-N657X0-Q and the 256 × 256 YOLOv8n-seg network in this repository. [The README](../README.md) has the commands to build and run the demo. Open the [source walkthrough](Source-Walkthrough.md) for line-by-line VS Code links and a map of the model settings.
 
 ## 1. Start with three pieces of the system
 
