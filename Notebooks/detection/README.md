@@ -1,10 +1,10 @@
-# Automated object detection
+# Insekten mit Boxen erkennen
 
-Open [Notebook 03](../03_Automated_Object_Detection.ipynb) to inspect image and bounding-box previews before you train. Use the same pipeline from the command line for repeatable runs. YOLOv8n and YOLO11n use pretrained detection checkpoints. MobileNetV3-Large uses ImageNet features with a newly initialized, three-scale Ultralytics detection head. Record that difference when interpreting comparisons.
+Die Idee ist einfach. Du gibst dem Modell ein Bild. Es sagt dir, wo ein Insekt ist und zu welcher Klasse es gehört. Um jedes gefundene Insekt zeichnet es ein Rechteck. In [Notebook 03](../03_Automated_Object_Detection.ipynb) kannst du dir die Bilder mit ihren Boxen anschauen, Modelle trainieren und die Ergebnisse vergleichen.
 
-## Set up and run
+## Kurz ausprobieren
 
-Use Python 3.10–3.12 with the pinned export dependencies. Run these commands from the repository root. The first run fetches COCO128 and pretrained weights.
+Nimm Python 3.10 bis 3.12. Öffne das Terminal im Hauptordner vom Projekt und führe die Befehle aus. Beim ersten Lauf werden Beispieldaten und Modellgewichte geladen.
 
 ```bash
 python -m venv .venv
@@ -13,11 +13,19 @@ python -m pip install -r Notebooks/detection/requirements.txt
 python Notebooks/detection/pipeline.py --out detection-runs/coco-smoke
 ```
 
-The smoke run trains YOLOv8n for one epoch on a seeded 96/16/16 split of COCO128. COCO128 comes from COCO training data, so pretrained YOLO weights may have seen the held-out sample. Use an independent insect test set to report generalization.
+Das Modell geht einmal durch die Trainingsbilder. So siehst du, ob der ganze Ablauf funktioniert. Für eine Aussage über die Erkennung deiner Insekten brauchst du passende Testbilder.
 
-## Use the insect dataset
+## Eigene Bilder verwenden
 
-For grouped import, use `images/<event>/<frame>.jpg` and `labels/<event>/<frame>.txt`. Give every frame from the same capture event the same top-level event folder, including frames saved in nested folders. Use at least three events with annotated objects. Choose event and subfolder names other than `images`, which YOLO uses to locate the matching labels. Each TXT row has `class_id x_center y_center width height` with normalized coordinates. Use an empty TXT file for a background image. Supply class names as a JSON array in class-ID order, for example `["moth", "fly"]`.
+Zu jedem Bild gehört eine Textdatei mit demselben Dateinamen. In jeder Zeile steht eine Box in der Form `class_id x_center y_center width height`. Die vier Zahlen beschreiben die Mitte und Größe der Box relativ zum Bild. Bei einem Bild ohne Objekt bleibt die Datei leer. In der Klassendatei steht die Reihenfolge der Klassen, zum Beispiel `["Motte", "Fliege"]`. Die erste Klasse hat die Nummer 0.
+
+Du kannst Bilder unter `images/<aufnahme>/` ablegen und die Labels passend unter `labels/<aufnahme>/`. Nimm mindestens drei Aufnahmen mit beschrifteten Objekten und verwende `images` nur als obersten Ordnernamen. Mit `--group-by-event` oder `group_by_event = True` im Notebook bleiben alle Bilder derselben Aufnahme zusammen. Das ist wichtig, weil zwei Bilder aus derselben Aufnahme fast gleich aussehen können.
+
+- **Train** ist zum Lernen.
+- **Val** hilft dir, während des Trainings den besten Stand auszuwählen.
+- **Test** zeigt dir am Schluss, wie gut das Modell auf neuen Bildern ist.
+
+Die Aufteilung zielt auf ungefähr 75 Prozent Training und je 12,5 Prozent für Val und Test. Ganze Aufnahmen bleiben zusammen, daher können die Anteile abweichen. In `event-splits.json` steht, wohin jede Aufnahme gekommen ist. Wenn du schon `images/{train,val,test}` und `labels/{train,val,test}` hast, lässt du `--group-by-event` weg.
 
 ```bash
 python Notebooks/detection/pipeline.py \
@@ -26,15 +34,13 @@ python Notebooks/detection/pipeline.py \
   --epochs 50 --out detection-runs/insects-01
 ```
 
-The importer targets about 75% train, 12.5% validation and 12.5% test by image count. Event sizes determine the actual ratios. The run stores the split copy under `grouped-data/` and the event assignments in `event-splits.json`. Review event IDs at the source, since grouping depends on their accuracy. The existing SHA-256 check rejects byte-identical images found across splits.
+Mit `--prepare-only` kannst du erst einmal die Boxen und die Anzahl der Bilder und Klassen prüfen. Mit `--min-test-images 600` verlangt die Pipeline mindestens 600 geprüfte Testbilder. Gib jedem Lauf einen neuen Ausgabeordner.
 
-For an existing dataset with `images/{train,val,test}` and matching `labels/{train,val,test}`, omit `--group-by-event`. In Notebook 03, set `group_by_event = True` for event folders. Review the per-class box counts, including zero counts, alongside the previews. Notebook training uses the grouped copy from inspection. The split is sized by image count and does not stratify classes.
+<a id="prepare-the-ip102-detection-benchmark"></a>
 
-Use `--prepare-only` with a separate output directory to check labels, split counts and previews before training. Use `--min-test-images 600` to require at least 600 validated test images before a thesis benchmark. Each invocation requires a fresh output directory. The manifest records image and label hashes. By default, up to 300 training images are selected with the run seed and recorded in `calibration-images.txt`. Adjust the limit with `--calibration-images` to represent your capture conditions. The run also records the Python environment, training arguments and training and evaluation plots.
+## Den öffentlichen Insektendatensatz nutzen
 
-## Prepare the IP102 Detection benchmark
-
-Download `Annotations.tar`, `JPEGImages.tar` and the two lists from `Detection/VOC2007/ImageSets/Main` in the [official IP102 release](https://github.com/xpwu95/IP102). Put those four files and the official `classes.txt` into the same folder.
+Lege die Archive `Annotations.tar` und `JPEGImages.tar`, die Listen `test.txt` und `trainval.txt` aus `Detection/VOC2007/ImageSets/Main` und die Klassendatei `classes.txt` in `detection-runs/ip102-source/`. Das Skript bringt die Boxen ins passende Format. Es übernimmt den veröffentlichten Testsplit und wählt die Validierungsbilder aus der Trainingsliste. Exakt gleiche Dateien über Splitgrenzen hinweg werden entfernt und in `ip102-splits.json` festgehalten. [Offizieller Download](https://github.com/xpwu95/IP102)
 
 ```bash
 python Notebooks/detection/prepare_ip102.py detection-runs/ip102-source detection-runs/ip102-data
@@ -43,32 +49,26 @@ python Notebooks/detection/pipeline.py \
   --min-test-images 600 --prepare-only --out detection-runs/ip102-inspection
 ```
 
-The converter preserves the official test list and takes a seeded, class-aware validation sample from `trainval.txt`. It removes exact image duplicates across partitions, giving priority to test, then train. Split counts and removed IDs are recorded in `ip102-splits.json`.
+## Andere Modelle anschließen
 
-## Add a model family
+Modelle können unterschiedlich trainiert werden und unterschiedliche Ergebnisse zurückgeben. Ein Adapter übersetzt diese Unterschiede. Für den Vergleich bekommt jedes Modell ein gleich großes Bild und gibt Boxen, Klassen und einen Wert für seine Sicherheit zurück. So kannst du dieselbe Auswertung für verschiedene Modelle nutzen.
 
-Select built-in models with `--models`. To register a detector from another family or framework, add `--adapter name=/path/to/adapter.py` and include that name in `--models`. Python adapters execute locally with your permissions. Reserve the `evaluation/` and `artifact-metadata/` directories in the model output for the pipeline. Use adapters you trust and install their dependencies into the experiment environment. For example, this runs two distinct detection families with a common 320-pixel input:
+Wähle Modelle mit `--models`. Für ein zusätzliches Modell gibst du mit `--adapter name=/pfad/zur/datei.py` die Python-Datei an. Im Notebook trägst du das Modell in `models` und seinen Dateipfad in `adapters` ein. Das Beispiel hier nutzt für beide Modelle 320 Pixel.
 
 ```bash
 python Notebooks/detection/pipeline.py \
   --dataset /path/to/insects --classes /path/to/classes.json --group-by-event \
   --size 320 --models yolov8n ssdlite \
   --adapter ssdlite=Notebooks/detection/adapters/torchvision_ssdlite.py \
-  --epochs 20 --out detection-runs/insects-yolo-ssd
+  --epochs 20 --out detection-runs/insects-adapter
 ```
 
-In Notebook 03, add the name to `models`, put its file path in the `adapters` dictionary, and set the shared `size`. The included SSDLite adapter trains a TorchVision SSD detector with randomly initialized weights and saves a native FP32 checkpoint selected by validation loss. It uses 320-pixel inputs. The built-in YOLO models start from pretrained COCO detectors, and the built-in MobileNetV3-Large starts with an ImageNet backbone and a new detection head. The report records each model's initialization.
+Wenn du einen eigenen Adapter schreibst, orientiere dich am [Beispieladapter](adapters/torchvision_ssdlite.py) und an der [Schnittstelle](model_adapter.py). Der Adapter trainiert mit `context.train` und `context.val` und gibt aus `train(context)` ein `TrainingResult` zurück. Darin stehen der gespeicherte Modellstand, seine Initialisierung und die verfügbaren Varianten (`FP32`, `FP16`, `INT8`, `NATIVE`). Pro Variante verarbeitet die Vorhersagefunktion ein quadratisches RGB-Bild als `uint8` in HWC-Reihenfolge. Sie liefert je Objekt `[x_min, y_min, x_max, y_max, confidence, class_id]` in Pixeln des aufgefüllten Bildes. Bei keinem Treffer liefert sie ein Array der Form `(0, 6)`. Verwende für Adapter nur Python-Dateien, denen du vertraust.
 
-A Python adapter exports `train(context)` and returns `TrainingResult(checkpoint, initialization, artifacts)` from [model_adapter.py](model_adapter.py). Follow the [TorchVision SSDLite adapter](adapters/torchvision_ssdlite.py) as a worked example.
+## Ergebnisse lesen
 
-- `context.train` and `context.val` are sequences of dataset manifest records. Use each record's `image` path and `boxes` rows `[class_id, x_center, y_center, width, height]`. Box coordinates are normalized to the original image. Class IDs are zero-based indexes into `context.classes`. Use `context.calibration_images` for quantization and save checkpoints under `context.output`.
-- The artifact mapping uses one or more of `FP32`, `FP16`, `INT8`, or `NATIVE`. Each entry specifies its on-disk file, format, predictor, and descriptions of model-specific preprocessing and decoding. Set the format to `tflite` for TFLite tensor metadata and the full integer interface checks.
-- Each predictor receives a square RGB `uint8` image in HWC order. The pipeline resizes with preserved aspect ratio and centers the result on a background of value 114. Load the model once for CPU inference, synchronize before returning, and return an `N×6` array of `[x_min, y_min, x_max, y_max, confidence, class_id]` in pixels relative to the padded input. Return shape `(0, 6)` for no detections. Model-specific normalization and decoding run inside the predictor.
+In `comparison.json` siehst du, wie gut und wie schnell die Modelle waren. **Precision** zeigt, wie viele gemeldete Treffer stimmen. **Recall** zeigt, wie viele vorhandene Objekte gefunden wurden. **Box-mAP** fasst zusammen, wie gut das Modell Objekte erkennt und passende Boxen setzt.
 
-## Compare quality and deployment
+Alle Varianten bekommen dieselben Testbilder mit derselben Bildgröße auf der CPU, jeweils ein Bild auf einmal. Die aktuelle Zeitmessung umfasst auch die Arbeit im Adapter, etwa das Aufbereiten und Auslesen der Daten. Im früheren Lauf wurde nur die Modellinferenz gemessen. In `run.json` stehen die Einstellungen. Im Bericht steht auch, wie jedes Modell angefangen hat, zum Beispiel mit Gewichten aus einem früheren Training oder mit einem neu initialisierten Detektionskopf. Das hilft beim Einordnen der Ergebnisse.
 
-Find per-model scores in `comparison.json` and the protocol in `run.json`. The shared evaluator gives each variant the same test images, square RGB input, CPU and batch of one. It keeps up to 300 detections with confidence at least 0.001, then uses the same IoU matching and precision, recall, mAP50 and mAP50–95 calculations across models. Model-specific decoding and suppression can differ. Reported latency covers the predictor call, including adapter preprocessing and decoding, after a warmup call. Earlier experiments used Ultralytics validation to time only the inference stage.
-
-Use the per-tensor INT8 TFLite and its JSON tensor description for the board handoff. Available export variants depend on the adapter. The repository demo decodes segmentation outputs. An STM32N6 deployment requires a supported export, matching firmware postprocessing, and separate NPU, memory and latency measurements on the board.
-
-[Ultralytics export settings](https://docs.ultralytics.com/modes/export)
+FP32 ist die Gleitkomma-Variante. INT8 nutzt kleinere Zahlen und kann das Modell kompakter machen. Ob sich dabei die Erkennungsqualität ändert, siehst du am Vergleich auf denselben Testbildern. Welche Varianten du bekommst, hängt vom Modell und seinem Adapter ab. Die Messung auf dem Rechner zeigt die CPU-Zeit. Für einen Lauf auf dem Board brauchst du einen passenden Export, eine Firmware, die seine Ausgaben versteht, und eine eigene Messung am Gerät.
