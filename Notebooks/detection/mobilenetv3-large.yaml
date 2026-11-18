@@ -1,0 +1,9 @@
+# ImageNet MobileNetV3-Large features with a three-scale Ultralytics detection head.
+nc: 80
+backbone:
+  - [-1, 1, TorchVision, [960, mobilenet_v3_large, DEFAULT, True, 2, True]]
+  - [0, 1, Index, [40, 7]]
+  - [0, 1, Index, [112, 13]]
+  - [0, 1, Index, [160, 16]]
+head:
+  - [[1, 2, 3], 1, Detect, [nc]]

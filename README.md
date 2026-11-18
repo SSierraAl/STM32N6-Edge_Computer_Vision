@@ -8,6 +8,7 @@ This repository runs **YOLOv8n instance segmentation on the NUCLEO-N657X0-Q**. I
 | Jump to the C functions and settings in VS Code | [Source walkthrough](Doc/Source-Walkthrough.md) |
 | Run the existing model on the board | [Run the bundled demo](#1-run-the-bundled-demo) |
 | Train on your own images | [Notebook 01 — Train and quantize](Notebooks/01_Train_and_Quantize_STM32N6.ipynb) |
+| Compare bounding-box detectors | [Notebook 03 — Automated object detection](Notebooks/03_Automated_Object_Detection.ipynb) and [command-line guide](Notebooks/detection/README.md) |
 | Compile a custom model with ST Edge AI Core | [Notebook 02 — Compile and deploy](Notebooks/02_Compile_and_Deploy_NUCLEO_N6.ipynb) or [manual commands](#3-generate-the-model-files) |
 | Build or update the firmware | [Build the application](#5-build-the-application) and [program external flash](#6-program-external-flash) |
 

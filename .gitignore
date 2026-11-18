@@ -1,3 +1,13 @@
 /.metadata
 /Release_Notes.md
 /_htmresc
+/detection-runs/
+/Notebooks/detection-runs/
+/Notebooks/detection/__pycache__/
+/Notebooks/detection/*.pt
+/*.pt
+/Notebooks/*.pt
+
+/.venv/
+/calibration_image_sample_data_20x128x128x3_float32.npy
+/Notebooks/calibration_image_sample_data_20x128x128x3_float32.npy

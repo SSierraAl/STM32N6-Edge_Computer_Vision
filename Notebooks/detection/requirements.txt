@@ -1,0 +1,15 @@
+ultralytics==8.3.88
+torch==2.5.1
+torchvision==0.20.1
+tensorflow==2.19.0
+onnx==1.17.0
+onnxruntime==1.21.0
+onnx2tf==1.26.3
+onnxslim==0.1.53
+sng4onnx==1.0.4
+onnx-graphsurgeon==0.5.8
+keras==3.9.2
+tf-keras==2.19.0
+numpy==1.26.4
+opencv-python==4.11.0.86
+ipykernel
