@@ -1,18 +1,18 @@
-# Insekten mit Masken erkennen
+# Find insects with masks
 
-Eine Box zeigt dir, wo ein Insekt ungefähr ist. Eine Maske zeigt, welche Pixel zu diesem Insekt gehören. Wenn zwei Insekten im Bild sind, bekommt jedes seine eigene Maske. In [Notebook 01](../01_Train_and_Quantize_STM32N6.ipynb) findest du den Einstieg ins Training.
+A box shows roughly where an insect is. A mask shows which pixels belong to it. If the image has two insects, each gets its own mask. Start with [Notebook 01](../01_Train_and_Quantize_STM32N6.ipynb) if you want to see how the training works.
 
-## Welche Bilder brauche ich?
+## What images do I need?
 
-Zum Trainieren und Messen brauchst du Bilder, bei denen die Konturen der einzelnen Insekten eingezeichnet sind. Die Boxen aus dem Detection-Datensatz reichen für die Maskenmessung nicht aus.
+For training and testing, use images with an outline drawn around each insect. Box labels alone give you no outline to compare with a predicted mask.
 
-Lege die Bilder unter `images/{train,val,test}/` ab und die passenden Textdateien unter `labels/{train,val,test}/`. Jede Zeile beschreibt ein Insekt mit einer Klassennummer und den Punkten seiner Kontur, also `class x1 y1 x2 y2 x3 y3 ...`. Die Koordinaten sind relativ zum Bild. Bei einem Bild ohne Objekt bleibt die Labeldatei leer. Die Namen der Klassen stehen in einer JSON-Liste, in der die erste Klasse die Nummer 0 hat.
+Put images in `images/{train,val,test}/` and the matching text files in `labels/{train,val,test}/`. Each line has a class ID and the points of one insect's outline, like `class x1 y1 x2 y2 x3 y3 ...`. The points are fractions of the image width and height. Leave the file empty for a background image. List class names in a JSON file. The first class has ID 0.
 
-Bilder aus derselben Aufnahme gehören alle in denselben Split. Standardmäßig braucht der Lauf mindestens 600 geprüfte Testbilder. Für einen kurzen Funktionstest kannst du mit `--min-test-images` eine kleinere Zahl einstellen.
+Keep frames from the same capture in one split. The pipeline requires 600 checked test images by default. Use `--min-test-images` with a smaller number for a quick run to check that the process works.
 
-## Bilder prüfen und trainieren
+## Check the images and train
 
-Nutze dieselbe [Python-Umgebung wie für Detection](../detection/README.md#kurz-ausprobieren). Schau dir zuerst die Vorschauen an. So siehst du, ob die Konturen auf den Bildern richtig sitzen und ob jeder Split passt.
+Use the same [Python setup as detection](../detection/README.md#try-a-short-run). First, check the previews to see whether the outlines sit in the right places and whether the splits make sense.
 
 ```bash
 python Notebooks/segmentation/pipeline.py \
@@ -20,7 +20,7 @@ python Notebooks/segmentation/pipeline.py \
   --prepare-only --out detection-runs/masks-inspection
 ```
 
-Dann kannst du mit einem vortrainierten Segmentierungsmodell starten. Der Befehl trainiert das Modell weiter und exportiert den besten Stand in zwei Varianten.
+Start with a saved segmentation model. The command trains it on your images and exports the best saved version as FP32 and INT8.
 
 ```bash
 python Notebooks/segmentation/pipeline.py \
@@ -29,12 +29,12 @@ python Notebooks/segmentation/pipeline.py \
   --out detection-runs/masks-benchmark
 ```
 
-## Was bedeutet der Vergleich?
+## Read the results
 
-Du prüfst FP32 und INT8 auf denselben Testbildern. Der **Masken-mAP** zeigt, wie gut die vorhergesagten Konturen zu den eingezeichneten Konturen passen. Der **Box-mAP** zeigt zusätzlich, wie gut die Rechtecke passen. In `comparison.json` findest du auch Precision, Recall, Dateigröße und die Inferenzzeit auf der CPU. Für die INT8-Kalibrierung nimmt die Pipeline nur Trainingsbilder. Die Testbilder bleiben für die abschließende Messung reserviert.
+Both exports run on the same test images. **Mask mAP** shows how well the predicted masks match the drawn outlines. **Box mAP** shows how well the rectangles match. Open `comparison.json` for these scores, precision, recall, file size, and CPU inference time. INT8 calibration uses training images. The test images are set aside for the final scores.
 
-Wenn du noch ein Segmentierungsmodell ausprobieren willst, tausche den Pfad bei `--checkpoint` aus. Lass Testbilder, Bildgröße und Seed gleich und nutze einen neuen Ausgabeordner.
+To try another segmentation model, change the path after `--checkpoint`. Keep the same test images, image size, and seed. Give the new run its own output folder.
 
-## Wie geht es aufs Board?
+## Check the model for the board
 
-Bei 256 × 256 Pixeln schreibt die Pipeline `insect_model.json`, wenn die Formen der INT8-Tensoren zur Demo passen. Das sind die Datenblöcke, die das Modell erwartet und ausgibt. Setze in [Notebook 02](../02_Compile_and_Deploy_NUCLEO_N6.ipynb) den Wert `MANIFEST` auf diese Datei. Dort prüfst du auch die Reihenfolge der Ausgaben und wie die Kamerawerte für das Modell umgerechnet werden. Danach kannst du am Board prüfen, ob die Masken richtig angezeigt werden und wie lange ein Bild braucht.
+At 256 × 256 pixels, the pipeline writes `insect_model.json` when the INT8 inputs and outputs have the shapes the demo expects. Set `MANIFEST` in [Notebook 02](../02_Compile_and_Deploy_NUCLEO_N6.ipynb) to that file. The notebook checks the order of the outputs and how camera pixel values are passed to the model. You can then check the masks and measure how long each image takes on the board.

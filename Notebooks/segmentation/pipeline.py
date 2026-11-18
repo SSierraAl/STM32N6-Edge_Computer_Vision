@@ -100,6 +100,7 @@ def evaluate(artifact, data, directory, size, test_count):
         if validator.seen != test_count:
             raise ValueError(f"Evaluated {validator.seen} images, expected {test_count}")
 
+    # Catch cases where the evaluator skips images from the held-out split.
     model.add_callback("on_val_end", check_test_count)
     result = model.val(
         data=str(data), split="test", imgsz=size, rect=False, device="cpu",
@@ -114,6 +115,7 @@ def evaluate(artifact, data, directory, size, test_count):
 
 
 def board_tensor_contract(interface, size, classes):
+    # Check the shapes here. Notebook 02 checks output order and camera quantization.
     return (
         size == 256 and len(classes) <= 255 and len(interface["inputs"]) == 1
         and interface["inputs"][0]["dtype"] == "int8"
@@ -212,12 +214,14 @@ def main(argv=None):
         [sys.executable, "-m", "pip", "freeze"], text=True
     ), encoding="utf-8")
     config = {"path": str(root), "names": names}
+    # Pass the exact lists we checked so training and testing use the same files.
     for split, records in splits.items():
         image_list = output / f"{split}.txt"
         image_list.write_text("".join(record["image"] + "\n" for record in records), encoding="utf-8")
         config[split] = str(image_list)
     dataset = output / "dataset.yaml"
     dataset.write_text(yaml.safe_dump(config), encoding="utf-8")
+    # Calibration uses training images. Test images are saved for the final scores.
     calibration = output / "calibration.yaml"
     images = [sample["image"] for sample in splits["train"]]
     selected = random.Random(args.seed).sample(images, min(300, len(images)))

@@ -79,7 +79,7 @@ def prepare_grouped(source, output, seed):
 
     order = list(events)
     random.Random(seed).shuffle(order)
-    # Stable sorting uses the seed to break size ties.
+    # Shuffle first so the seed decides the order of events with the same size.
     order.sort(key=lambda event: -len(events[event]))
     labeled = [event for event in order if any(
         label.read_bytes().strip() for _, label in events[event]
@@ -89,6 +89,7 @@ def prepare_grouped(source, output, seed):
 
     total = sum(map(len, events.values()))
     targets = dict(zip(SPLITS, (total * .75, total * .125, total * .125)))
+    # Give every split at least one event with boxes before filling it up.
     assignment = {labeled[0]: "train"}
     for split in ("val", "test"):
         event = min((event for event in labeled if event not in assignment),
@@ -198,6 +199,7 @@ def tensor_interface(path, integer):
     if integer:
         from tensorflow.lite.python import schema_py_generated as schema
 
+        # Read every graph in the file, including graphs the interpreter may not show.
         content = path.read_bytes()
         if not schema.Model.ModelBufferHasIdentifier(content, 0):
             raise ValueError(f"{path} is not a TFLite FlatBuffer")
@@ -244,6 +246,7 @@ def evaluate(artifact, samples, names, size, directory):
         frame, bounds = prepare_image(sample["image"], size)
         left, top, new_width, new_height = bounds
         if index == 0:
+            # Run once before timing so setup does not count as inference.
             artifact.predictor(frame.copy())
         start = perf_counter()
         raw = artifact.predictor(frame)
@@ -258,6 +261,7 @@ def evaluate(artifact, samples, names, size, directory):
             raise ValueError(f"{artifact.path}: expected scores in [0, 1] and valid class IDs")
         output = output[output[:, 4] >= 0.001]
         output = output[np.argsort(-output[:, 4], kind="stable")[:300]]
+        # Clip boxes to the image itself because the square input includes padding.
         output[:, [0, 2]] = output[:, [0, 2]].clip(left, left + new_width)
         output[:, [1, 3]] = output[:, [1, 3]].clip(top, top + new_height)
         output = output[(output[:, 2] > output[:, 0]) & (output[:, 3] > output[:, 1])]
@@ -289,7 +293,7 @@ def export_tflite(model, data, size):
     class DetectionExporter(Exporter):
         def _add_tflite_metadata(self, file):
             # Ultralytics 8.3.88 AutoBackend reads the first ZIP entry of a TFLite file.
-            # This keeps evaluation portable across platforms without native tflite-support.
+            # Writing metadata here lets the same evaluator load the file on the Mac.
             with zipfile.ZipFile(file, "a") as archive:
                 archive.writestr("ultralytics_metadata.txt", repr(self.metadata))
 
@@ -525,6 +529,7 @@ def main(argv=None):
     previews(splits, names, output, options.seed)
     if options.prepare_only:
         return
+    # Use training images for calibration so the test images stay unseen.
     calibration_files = output / "calibration-images.txt"
     training_files = [record["image"] for record in splits["train"]]
     selected = random.Random(options.seed).sample(
@@ -539,6 +544,7 @@ def main(argv=None):
     for name in options.models:
         directory = output / name
         directory.mkdir()
+        # Give each adapter its own records and keep the test split in the evaluator.
         context = TrainingContext(
             directory, deepcopy(splits["train"]), deepcopy(splits["val"]), tuple(names),
             tuple(Path(path) for path in sorted(selected)), options.size,

@@ -32,6 +32,7 @@ def loss_for_split(model, records, batch, device, optimizer=None):
     for start in range(0, len(records), batch):
         subset = records[start:start + batch]
         images, targets = read_batch(subset, device)
+        # Validation measures loss without changing the weights.
         with torch.set_grad_enabled(optimizer is not None):
             loss = sum(model(images, targets).values())
         value = float(loss.detach())
@@ -59,7 +60,7 @@ def train(context):
         score_thresh=0.001, detections_per_img=300,
     ).to(device)
     model.train()
-    # Freeze batch statistics so a final batch of one image can train at 1x1 feature levels.
+    # Freeze batch statistics so a last batch with one image can still train.
     for layer in model.modules():
         if isinstance(layer, torch.nn.BatchNorm2d):
             layer.eval()
@@ -86,6 +87,7 @@ def train(context):
     @torch.inference_mode()
     def predict(frame):
         detections = model([image_tensor(frame)])[0]
+        # TorchVision reserves class 0 for background. Our first object class is 0.
         return torch.column_stack((
             detections["boxes"], detections["scores"], detections["labels"] - 1,
         )).numpy()

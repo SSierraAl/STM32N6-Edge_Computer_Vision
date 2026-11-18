@@ -54,6 +54,7 @@ def convert(source, output, seed):
             try:
                 xml = ElementTree.fromstring(data)
             except ElementTree.ParseError:
+                # One source file repeats the same XML block. Accept only identical copies.
                 roots = list(ElementTree.fromstring(b"<annotations>" + data + b"</annotations>"))
                 if len(roots) != 2 or any(root.tag != "annotation" for root in roots):
                     raise
@@ -76,7 +77,7 @@ def convert(source, output, seed):
                     int(obj.findtext(f"bndbox/{field}"))
                     for field in ("xmin", "ymin", "xmax", "ymax")
                 )
-                # VOC coordinates are one-based and inclusive.
+                # VOC counts pixels from 1 and includes both edges of the box.
                 left, top = max(0, left - 1), max(0, top - 1)
                 right, bottom = min(width, right), min(height, bottom)
                 if right <= left or bottom <= top:
@@ -109,6 +110,7 @@ def convert(source, output, seed):
         seen = {}
         counts = Counter()
         duplicate_ids = []
+        # Keep the official test copy if the same image also appears in training.
         for image_id in test + [i for i in trainval if i not in validation] + sorted(validation):
             split = "test" if image_id not in trainval_ids else ("val" if image_id in validation else "train")
             with images.extractfile(files[image_id]) as image:

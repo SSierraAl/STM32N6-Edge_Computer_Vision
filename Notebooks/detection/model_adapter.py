@@ -50,6 +50,7 @@ def prepare_image(path, size):
     ratio = min(size / width, size / height)
     new_width, new_height = max(1, round(width * ratio)), max(1, round(height * ratio))
     left, top = (size - new_width) // 2, (size - new_height) // 2
+    # Pad the image to a square so it keeps its original proportions.
     frame = np.full((size, size, 3), 114, dtype=np.uint8)
     frame[top:top + new_height, left:left + new_width] = cv2.resize(
         rgb, (new_width, new_height), interpolation=cv2.INTER_LINEAR
