@@ -1,49 +1,30 @@
-# Neural-ART: Description and Operation
+# Neural-ART execution and memory placement
 
-The STM32N6 integrates a dedicated engine to accelerate convolutional neural network (CNN) inference, called Neural-ART.
+The STM32N6 Neural-ART accelerator executes supported neural network operations under the coordination of the Cortex-M55 application and ST runtime. ST Edge AI Core compiles the graph into a scheduled execution plan and model-specific code. CPU operations and synchronization remain part of the complete inference path.
 
-## Memory Management
+## Execution artifacts
 
-Neural-ART operates alongside the Cortex-M55 core and runs autonomously. A dedicated compiler, included with [STEdgeAI](https://www.st.com/en/development-tools/stedgeai-core.html), generates all the code and data required by Neural-ART. Two kinds of artifacts are produced:
-- C sources and headers to include in the application project, enabling the CPU to interact with Neural-ART (start/stop inference, handle the calculation of unsupported layers, etc.).
-- A standalone binary containing the model weights.
+| Artifact | Function |
+| --- | --- |
+| `network.c` and `network_ecblobs.h` | Execution plan, generated operations, and accelerator control data |
+| `stai_network.c` and `stai_network.h` | Application-facing API and tensor definitions |
+| `network_atonbuf.xSPI2.raw` | Model constants assigned to external NOR |
+| `network_generate_report.txt` | Graph, memory allocation, and execution-placement information |
 
-On typical GPU/CPU inference, memory for the model is often a single, large block. With Neural-ART, memory is explicitly divided into:
-- Read-only data: model weights.
-- Read/write buffers: intermediate results (layer inputs/outputs), known as activations.
+The application obtains input and output addresses from the generated API and invokes `stai_network_run()`. The wrapper repeats asynchronous calls while inference remains active and waits for hardware events when requested by the runtime. The generated epoch table specifies units of scheduled execution. The generation report identifies hardware, software, and hybrid epochs, which helps relate latency to operation placement. [Application inference wrapper](../Application/NUCLEO-N657X0-Q/Src/main.c#L302) · [Generated epoch table](../Model/NUCLEO-N657X0-Q/network.c#L2265)
 
-These buffers have different access patterns and are placed in different regions: activations in RAM, weights typically in external flash.
+## Weights, activations, and buffers
 
-Because the application and the inference engine run in parallel, they must not share the same memory areas. Memory—both RAM and flash—must be partitioned carefully.
+Weights and other constants remain fixed during inference. Activations hold intermediate results for a particular input. The compiler places these arrays according to access requirements, available capacity, and the memory-pool description. In this project, constants occupy external NOR, while activation storage uses the configured SRAM pools.
 
-Similar to how the C compiler uses a linker script, `stedgeai` uses a memory pool file (`.mpool`) to map activations and weights. The linker script and the memory pool must be coordinated to avoid overlap. This is a trade-off: allocating more RAM to activations leaves less RAM for the application.
+The firmware linker independently allocates application code, globals, stack, heap, and display buffers. Its regions must be coordinated with the Neural-ART pools to prevent conflicting allocations. Network input and output addresses also participate in this allocation, so their availability follows the generated execution plan and buffer lifetimes. [Memory pool](../Model/my_mpools/stm32n6-app2_NUCLEO-N657X0-Q.mpool) · [Firmware linker script](../Application/NUCLEO-N657X0-Q/STM32CubeIDE/STM32N657xx.ld)
 
-Two main RAM types are available:
-- NPURAM (AXISRAM3 to AXISRAM6): optimized for Neural-ART access.
-- AXISRAM1 and AXISRAM2: general-purpose RAM.
+The CPU supplies or receives data through shared buffers accessed by other hardware blocks. Cache maintenance ensures that producers and consumers observe the intended memory contents. Input capture completes before inference begins, and postprocessing reads the outputs after network execution. Changes to buffering or concurrency require analysis of buffer ownership, allocation lifetime, and cache operations.
 
-This GettingStarted project provides example memory pools for both boards: [NUCLEO-N657X0-Q](../Model/my_mpools/stm32n6-app2_NUCLEO-N657X0-Q.mpool) and [STM32N6570-DK](../Model/my_mpools/stm32n6-app2_STM32N6570-DK.mpool).
+## Compiler and runtime compatibility
 
-The diagram below illustrates interactions among hardware blocks, the application, inference, and memory layout:
+Generated C/H files and external constants describe one compiled graph. They are updated together when the model is regenerated. The application links against `Middlewares/stedgeai-lib/`, whose API and runtime must be compatible with the generator version. The committed model report identifies ST Edge AI Core 3.0.0.
 
-![Inference application interactions](../_htmresc/Inference_Application_Interactions.png)
+The network report and firmware linker map provide complementary evidence of placement. The reference network uses 445 of 448 KiB in one NPU SRAM bank. Capacity in other banks does not automatically resolve a placement constraint. [Generation report](../Model/st_ai_output/network_generate_report.txt#L720)
 
-On the [ST Edge AI Developer Cloud](https://stedgeai-dc.st.com/home), a [custom Netron view](https://stedgeai-dc.st.com/assets/netron/index.html) visualizes memory usage across inference steps. Open `st_ai_output/<model_name>_c_info.json` in the web app to explore buffer sizes and lifetimes.
-
-The boundary between the application and the inference engine is the model’s input and output buffers:
-- Input: filled by the CPU or another IP (DCMIPP, DMA2D, etc.) before inference.
-- Output: read by the CPU after inference to perform post-processing.
-
-Input/output buffers may reside in application RAM or inference RAM, depending on needs. In this GettingStarted project, both are placed in inference RAM to reduce application-side memory by nesting them within the activation buffer area. The trade-off is that double buffering cannot be used, because the input buffer is not accessible while inference is running.
-
-## Tool Interactions
-
-Neural network inference still requires coordination between Neural-ART and the CPU—for example, to synchronize start/end of inference and to process layers not supported natively by Neural-ART. `stedgeai` generates `.c/.h` files to implement these interactions (shown in green in the diagram) and they must be included in your application project.
-
-While Neural-ART supports most common layers, the application should also include `stedgeai-lib` so that the CPU can handle any unsupported layers. During compilation, `stedgeai` partitions execution between Neural-ART and CPU based on the model’s layers, enabling a seamless inference pipeline across IPs. The generated files are model-specific and should be updated each time you recompile a model. In contrast, `stedgeai-lib` is versioned: update it only when you upgrade `stedgeai`, and ensure the library version matches the compiler version used for your model.
-
-Interactions between `stedgeai` and the C compiler:
-
-![Tool interactions](../_htmresc/Tool_Interactions.png)
-
-For more information on ST Edge AI and Neural-ART, see the [online documentation](https://stedgeai-dc.st.com/assets/embedded-docs/index.html).
+The [architecture description](Application-Overview.md) develops the tensor and memory examples. ST's compiler documentation provides further detail on scheduling and allocation. [ST Edge AI Core documentation](https://stedgeai-dc.st.com/assets/embedded-docs/index.html)

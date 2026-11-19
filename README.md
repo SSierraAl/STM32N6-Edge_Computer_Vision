@@ -2,18 +2,18 @@
 
 This repository runs **YOLOv8n instance segmentation on the NUCLEO-N657X0-Q**. It is based on ST's [Instance Segmentation Getting Started example](https://github.com/STMicroelectronics/STM32N6-GettingStarted-InstanceSegmentation). The included model accepts a 256 × 256 RGB image and produces bounding boxes, class scores, and instance masks for 80 COCO classes.
 
-| Goal | Start here |
+| Procedure | Reference |
 | --- | --- |
-| Learn the architecture from the camera to the NPU | [Architecture walkthrough](Doc/Application-Overview.md) |
-| Jump to the C functions and settings in VS Code | [Source walkthrough](Doc/Source-Walkthrough.md) |
+| System architecture and tensor representation | [Architecture walkthrough](Doc/Application-Overview.md) |
+| C execution and configuration reference | [Source walkthrough](Doc/Source-Walkthrough.md) |
 | Run the existing model on the board | [Run the bundled demo](#1-run-the-bundled-demo) |
-| Train on your own images | [Notebook 01 — Train and quantize](Notebooks/01_Train_and_Quantize_STM32N6.ipynb) |
+| Train on a custom dataset | [Notebook 01 — Train and quantize](Notebooks/01_Train_and_Quantize_STM32N6.ipynb) |
 | Compile a custom model with ST Edge AI Core | [Notebook 02 — Compile and deploy](Notebooks/02_Compile_and_Deploy_NUCLEO_N6.ipynb) or [manual commands](#3-generate-the-model-files) |
 | Build or update the firmware | [Build the application](#5-build-the-application) and [program external flash](#6-program-external-flash) |
 
 ## How the firmware works
 
-The [architecture walkthrough](Doc/Application-Overview.md) traces a frame through the source code, works through a quantized detection and a mask, and shows how the firmware linker and the Neural-ART memory pool fit together.
+The [architecture description](Doc/Application-Overview.md) details acquisition, quantized tensor interpretation, mask reconstruction, and coordination between firmware and network memory allocation.
 
 The camera peripheral (DCMIPP) produces two image streams. Pipe 1 supplies continuous video for the USB display. Pipe 2 takes a snapshot, resizes it to the model input dimensions, and supplies RGB pixels for inference. The application runs the model with the Neural-ART runtime. The postprocessor decodes the two output tensors, filters duplicate boxes, reconstructs masks, and passes the results to the display.
 
@@ -36,11 +36,11 @@ The camera peripheral (DCMIPP) produces two image streams. Pipe 1 supplies conti
 
 See ST's [NUCLEO deployment guide](https://github.com/STMicroelectronics/stm32ai-modelzoo-services/blob/main/instance_segmentation/docs/README_DEPLOYMENT_STM32N6.md) for the hardware setup. The demo checks and can program the xSPI speed configuration OTP bits during initialization. The source project also contains a build configuration for the optional SPI display.
 
-## 2. Train and export a model
+## 2. Model training and export
 
-Start with [Notebook 01](Notebooks/01_Train_and_Quantize_STM32N6.ipynb). It runs the existing COCO TFLite in Python, checks YOLO polygon labels, fine-tunes YOLOv8n-seg, and compares the trained PyTorch model with its full-integer TFLite export. Start with the same 256 × 256 input size and an architecture that produces the same two output tensors. Keep captures from a single event in the same dataset split.
+The training procedure is implemented in [Notebook 01](Notebooks/01_Train_and_Quantize_STM32N6.ipynb). It runs the existing COCO TFLite in Python, checks YOLO polygon labels, fine-tunes YOLOv8n-seg, and compares the trained PyTorch model with its full-integer TFLite export. Start with the same 256 × 256 input size and an architecture that produces the same two output tensors. Keep captures from a single event in the same dataset split.
 
-The notebook hands over a `*_full_integer_quant.tflite` file and a JSON record with the class order and tensor details. Use representative images from your own camera for quantization calibration. [ST's YOLOv8 segmentation export tutorial](https://github.com/STMicroelectronics/stm32ai-modelzoo-services/blob/main/instance_segmentation/docs/tuto/How_to_deploy_yolov8_instance_segmentation.md) describes the per-channel export workflow.
+The notebook hands over a `*_full_integer_quant.tflite` file and a JSON record with the class order and tensor details. Calibration images should represent the intended camera and operating conditions. [ST's YOLOv8 segmentation export tutorial](https://github.com/STMicroelectronics/stm32ai-modelzoo-services/blob/main/instance_segmentation/docs/tuto/How_to_deploy_yolov8_instance_segmentation.md) describes the per-channel export workflow.
 
 ## 3. Generate the model files
 
@@ -68,7 +68,7 @@ cd ..
 | Copy `network_atonbuf.xSPI2.raw` | Keeps the generated data as `network_data.xSPI2.bin`. It contains the model's weights and constants. |
 | `objcopy` | Wraps the raw data in Intel HEX records with base address `0x70380000`, matching the generated network's flash references. |
 
-The repository's [generation script](Model/generate-n6-model_NUCLEO-N657X0-Q.sh) performs the same steps with the COCO filename fixed. [Notebook 02](Notebooks/02_Compile_and_Deploy_NUCLEO_N6.ipynb) generates a custom model in a separate directory so you can inspect it before copying it into the project. If upgrading ST Edge AI Core, update the application headers and runtime under `Middlewares/stedgeai-lib/` to match the generator.
+The repository's [generation script](Model/generate-n6-model_NUCLEO-N657X0-Q.sh) performs the same steps with the COCO filename fixed. [Notebook 02](Notebooks/02_Compile_and_Deploy_NUCLEO_N6.ipynb) generates custom model artifacts in a separate directory for interface and placement verification before integration. If upgrading ST Edge AI Core, update the application headers and runtime under `Middlewares/stedgeai-lib/` to match the generator.
 
 ## 4. Check the generated model and configure the application
 
@@ -84,13 +84,13 @@ Use `stai_network.h` from the **new generation** and review `network_generate_re
 ### STM32CubeIDE on Windows
 
 1. Import [`Application/NUCLEO-N657X0-Q/STM32CubeIDE`](Application/NUCLEO-N657X0-Q/STM32CubeIDE) as an existing project and select the **UVCL** build configuration.
-2. Open **Project Properties → C/C++ Build → Settings → Build Steps → Post-build steps**. The checked-in UVCL configuration contains this command. Replace the executable path with the one on your PC and ensure the build generates the input `.bin`.
+2. Open **Project Properties → C/C++ Build → Settings → Build Steps → Post-build steps**. The checked-in UVCL configuration contains this command. Set the executable path to the installed Signing Tool and enable binary output generation for the build.
 
    ```text
    "D:\STM32_PROG\bin\STM32_SigningTool_CLI.exe" -s -bin "${BuildArtifactFileBaseName}.bin" -o "${BuildArtifactFileBaseName}-trusted.bin" -t fsbl -la 0x70100000 -nk -hv 2.3 -align
    ```
 
-3. Run **Clean** and **Build**. Use the resulting `*-trusted.bin` for the application region at **`0x70100000`**. The `.elf` is for debugging. In development mode, you can also load the ELF in SRAM with the model data already programmed in external flash.
+3. Run **Clean** and **Build**. Use the resulting `*-trusted.bin` for the application region at **`0x70100000`**. The `.elf` is for debugging. In development mode, the debugger loads the ELF into SRAM while model constants remain programmed in external flash.
 
 The post-build step adds the STM32 v2.3 boot header. `-nk` selects the no-key flow and `-align` aligns the payload. The command above is the existing CubeIDE recipe, with `-t fsbl` and `-la` in the header. Its output is used as the **application image**. The actual first-stage bootloader is `FSBL/ai_fsbl.hex`. The `.bin` download still needs an explicit flash destination. The header's load-address field and the programmer's write address are separate settings. [ST Signing Tool manual](https://www.st.com/resource/en/user_manual/um2543-stm32-signing-tool-software-description-stmicroelectronics.pdf)
 
@@ -106,7 +106,7 @@ make sign SCR_LIB_SCREEN_ITF=UVCL SIGNER='STM32_SigningTool_CLI -align'
 cd ../..
 ```
 
-The Makefile uses the ST example's **SSBL** header recipe for the application. The override enables alignment for current Signing Tool versions that support `-align`. If you are reproducing the older toolchain and its Signing Tool does not expose this option, use the Makefile default. It produces `Application/NUCLEO-N657X0-Q/build/Application/NUCLEO-N657X0-Q/Project_sign.hex`, with the application flash address already encoded. Use one build route's application image per deployment.
+The Makefile uses the ST example's **SSBL** header recipe for the application. The override enables alignment for current Signing Tool versions that support `-align`. Older Signing Tool versions that lack this option use the Makefile default. It produces `Application/NUCLEO-N657X0-Q/build/Application/NUCLEO-N657X0-Q/Project_sign.hex`, with the application flash address already encoded. Use one build route's application image per deployment.
 
 ## 6. Program external flash
 
@@ -121,8 +121,8 @@ The STM32N6 boots from external NOR. For this project's 64 MiB NUCLEO flash, the
 At reset the bootloader starts the application. The application maps the external flash, and the generated network references its constants at the model region address. Keep the application image below `0x70380000` and the model data within the physical flash range. The weights region has 60.5 MiB of physical capacity. The compiler report derives its limit from the memory pool, so use the physical limit when checking a larger model. `.hex` files carry their write addresses. Raw `.bin` files require the address in CubeProgrammer.
 
 1. With the board in **development mode**, connect via **SWD** and select `MX25UM51245G_STM32N6570-NUCLEO.stldr`.
-2. For a fresh installation, program the FSBL, application image, and model HEX. If you changed the model, program the new application and the matching model HEX together. If you only changed firmware code and are keeping the same generated network and data, update the application region.
-3. Erase only the sectors needed by the files you are updating, and verify programming. Leave **Skip flash erase before programming** unchecked for ordinary updates. It bypasses erasure and is appropriate when the target sectors are already erased. A full-chip erase clears all three regions, so all three images must be programmed again.
+2. For a fresh installation, program the FSBL, application image, and model HEX. Model changes require programming the new application and matching model HEX together. Firmware changes that retain the existing generated network and data require an application-region update.
+3. Erase the sectors occupied by the updated files and verify programming. Leave **Skip flash erase before programming** unchecked for ordinary updates. It bypasses erasure and is appropriate when the target sectors are already erased. A full-chip erase clears all three regions, so all three images must be programmed again.
 4. Set both jumpers to position 1 and reboot into flash mode. Check the model name on the UART console and verify boxes and masks in the USB video.
 
 [STM32CubeProgrammer manual](https://www.st.com/resource/en/user_manual/dm00403500.pdf)
@@ -140,8 +140,8 @@ STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el "$loader" -hardRst -w "$app" 0
 STM32_Programmer_CLI -c port=SWD mode=HOTPLUG -el "$loader" -hardRst -w 'Model/NUCLEO-N657X0-Q/network_data.hex' -v
 ```
 
-If you built with Make, substitute `Project_sign.hex` for the application binary and omit the explicit address for that command.
+For a Makefile build, the application programming command uses `Project_sign.hex`, which carries the destination address and therefore requires no explicit address argument.
 
-### Validate a custom model
+### Model validation
 
-Test with both target objects and empty scenes under the same illumination used in your application. If the PC and board disagree, start with the same RGB input bytes and compare the raw output tensors before decoding. The demo's inference timer measures the network call. Measure capture and postprocessing separately to estimate end-to-end latency.
+Validation includes target objects and empty scenes under representative operating illumination. Numerical PC-to-board comparisons require identical RGB input bytes and examination of raw output tensors before decoding. The demo's inference timer measures the network wrapper. Capture, postprocessing, and display measurements complete the frame-latency assessment.
